@@ -1,0 +1,21 @@
+{
+  "mcpServers": [
+    {
+      "name": "filesystem",
+      "description": "Local filesystem read/write/search via official MCP server",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+      "enabled": true
+    },
+    {
+      "name": "github",
+      "description": "GitHub PRs, issues, commits, and repo management",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" },
+      "enabled": false
+    }
+  ]
+}

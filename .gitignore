@@ -1,0 +1,49 @@
+# ── Credentials & Secrets ──────────────────────────────────────
+.env
+
+# ── Local DevPilot Data ───────────────────────────────────────
+.devpilot_sessions/
+
+# ── Specific Documents ─────────────────────────────────────────
+DevPilot_SRS_v1.0.docx
+srs_content.txt
+
+# ── Python Standard Ignores ────────────────────────────────────
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & CI
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+DevPilot_SRS_v1.0.docx
+srs_content.txt
