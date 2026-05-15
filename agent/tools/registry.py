@@ -20,7 +20,7 @@ from agent.tools.shell import RunBashTool
 from agent.tools.a2a import A2ATool
 from agent.tools.web_search import WebSearchTool
 from agent.tools.memory_store import MemoryStoreTool
-from agent.tools.git_ops import GitOpsTool
+from agent.tools.git_ops import GitStatusTool, GitCommitTool
 from agent.tools.doc_gen import DocGenTool
 from agent.tools.diagram import DiagramTool
 from agent.ui import UI
@@ -59,12 +59,13 @@ class PermissionGuard:
         preview_lines: list[str] = []
         if tool_name == "write_file":
             preview_lines.append(f"Write to: {tool_input.get('path', '?')}")
+        elif tool_name == "edit_file":
+            preview_lines.append(f"Edit file: {tool_input.get('path', '?')}")
         elif tool_name == "run_bash":
             preview_lines.append(f"Run: {tool_input.get('command', '?')}")
-        elif tool_name == "git_ops":
+        elif tool_name == "git_commit":
             preview_lines.append(
-                f"Git {tool_input.get('action', '?')}"
-                + (f": {tool_input.get('message', '')}" if tool_input.get("message") else "")
+                f"Git Commit: {tool_input.get('message', '')}\n  Files: {', '.join(tool_input.get('paths', []))}"
             )
         else:
             for k, v in tool_input.items():
@@ -113,15 +114,17 @@ class ToolRegistry:
     def _register_builtins(self) -> None:
         """Register all default native tools."""
         # Import here to avoid circular imports at module load time
-        from agent.tools.fs import ListFilesTool, ReadFileTool, WriteFileTool
+        from agent.tools.fs import ListFilesTool, ReadFileTool, WriteFileTool, EditFileTool
 
         tools: list[BaseTool] = [
             ReadFileTool(self._config, self._context),
             WriteFileTool(self._config, self._context),
+            EditFileTool(self._config, self._context),
             ListFilesTool(self._config, self._context),
             RunBashTool(self._config),
             SearchCodeTool(self._config),
-            GitOpsTool(self._config),
+            GitStatusTool(self._config),
+            GitCommitTool(self._config),
             DocGenTool(self._config),
             DiagramTool(self._config),
         ]

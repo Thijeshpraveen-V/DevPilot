@@ -13,6 +13,8 @@ Injected into every system prompt so the model always knows:
 from __future__ import annotations
 
 import hashlib
+import ast
+import re
 from pathlib import Path
 
 
@@ -87,7 +89,7 @@ class RepoContext:
             for rel in sorted(self._written_files):
                 lines.append(f"  • {rel}")
 
-        tree = self._top_level_tree()
+        tree = self._build_project_tree()
         if tree:
             lines.append(f"\nProject root ({self._workdir.name}/):")
             lines.extend(f"  {entry}" for entry in tree)
@@ -109,19 +111,67 @@ class RepoContext:
     def _hash(content: str) -> str:
         return hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
 
-    def _top_level_tree(self, max_entries: int = 40) -> list[str]:
-        entries: list[str] = []
+    def _extract_signatures(self, path: Path) -> list[str]:
+        rel = self._rel(str(path))
+        if rel in self._read_files:
+            return []
+
+        sigs = []
         try:
-            for item in sorted(self._workdir.iterdir()):
-                if item.name.startswith(".") and item.name not in (".env", ".gitignore"):
-                    continue
-                if item.is_dir():
-                    entries.append(f"📁 {item.name}/")
-                else:
-                    entries.append(f"📄 {item.name}")
-                if len(entries) >= max_entries:
-                    entries.append("… (truncated)")
-                    break
-        except OSError:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+            if path.suffix == ".py":
+                tree = ast.parse(content)
+                for node in tree.body:
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        sigs.append(f"    def {node.name}(...)")
+                    elif isinstance(node, ast.ClassDef):
+                        sigs.append(f"    class {node.name}:")
+                        for sub_node in node.body:
+                            if isinstance(sub_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                sigs.append(f"        def {sub_node.name}(...)")
+            elif path.suffix in (".js", ".ts"):
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line.startswith("class ") or line.startswith("export class ") or \
+                       line.startswith("function ") or line.startswith("export function "):
+                        sigs.append(f"    {line}")
+        except Exception:
             pass
+        return sigs
+
+    def _build_project_tree(self, max_entries: int = 200) -> list[str]:
+        entries: list[str] = []
+        ignores = {
+            ".git", "node_modules", ".venv", "__pycache__", "dist", 
+            "build", ".next", ".tox", "coverage_html_report", ".devpilot_sessions"
+        }
+
+        def _traverse(directory: Path, prefix: str = "") -> None:
+            if len(entries) >= max_entries:
+                return
+
+            try:
+                for item in sorted(directory.iterdir()):
+                    if item.name.startswith(".") and item.name not in (".env", ".gitignore", ".github"):
+                        continue
+                    if item.name in ignores or item.name.endswith(".egg-info"):
+                        continue
+
+                    if item.is_dir():
+                        entries.append(f"{prefix}📁 {item.name}/")
+                        _traverse(item, prefix + "  ")
+                    else:
+                        entries.append(f"{prefix}📄 {item.name}")
+                        if item.suffix in (".py", ".js", ".ts"):
+                            sigs = self._extract_signatures(item)
+                            for sig in sigs:
+                                entries.append(f"{prefix}{sig}")
+
+                    if len(entries) >= max_entries:
+                        entries.append("… (truncated to ~200 items for context size)")
+                        break
+            except OSError:
+                pass
+
+        _traverse(self._workdir)
         return entries

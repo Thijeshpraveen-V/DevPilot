@@ -194,6 +194,95 @@ class WriteFileTool(BaseTool):
             return ToolResult(f"Error writing {path}: {e}", is_error=True)
 
 
+class EditFileTool(BaseTool):
+    """Surgically edit a file by replacing a specific block of text."""
+
+    def __init__(self, config: "Config", context: "RepoContext | None" = None) -> None:
+        self._config = config
+        self._context = context
+
+    @property
+    def schema(self) -> ToolSchema:
+        return ToolSchema(
+            name="edit_file",
+            description=(
+                "Edit an existing file by replacing a specific block of text. "
+                "This is much faster and cheaper than write_file for large files. "
+                "You must provide the exact old_content you wish to replace. "
+                "The old_content must be unique within the file."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to the file.",
+                    },
+                    "old_content": {
+                        "type": "string",
+                        "description": "The exact existing text block to be replaced. Must match the file exactly, including whitespace.",
+                    },
+                    "new_content": {
+                        "type": "string",
+                        "description": "The new text block that will replace old_content.",
+                    },
+                },
+                "required": ["path", "old_content", "new_content"],
+            },
+            required=["path", "old_content", "new_content"],
+            is_destructive=True,
+            sprint="Sprint 2",
+        )
+
+    async def execute(self, path: str, old_content: str, new_content: str) -> ToolResult:  # type: ignore[override]
+        try:
+            safe_p = _safe_path(self._config.workdir, path)
+            if not safe_p.exists() or not safe_p.is_file():
+                return ToolResult(f"Error: File not found or is not a file: {path}", is_error=True)
+
+            file_content = safe_p.read_text(encoding="utf-8", errors="replace")
+            
+            # Validation as requested in Phase 1
+            occurrences = file_content.count(old_content)
+            if occurrences == 0:
+                return ToolResult(
+                    f"Error: The provided old_content was not found in the file. "
+                    "Make sure you have an exact match including leading spaces and newlines.",
+                    is_error=True
+                )
+            elif occurrences > 1:
+                return ToolResult(
+                    f"Error: The provided old_content appears {occurrences} times in the file. "
+                    "Include more surrounding context to make the block unique.",
+                    is_error=True
+                )
+
+            # Perform surgical replacement
+            updated_content = file_content.replace(old_content, new_content)
+
+            # Compute and display diff before writing
+            diff = _unified_diff(file_content, updated_content, path)
+            if diff:
+                from agent.ui import UI
+                UI.print_diff(path, diff)
+            else:
+                from agent.ui import UI
+                UI.print_info(f"No changes to {path} (content identical).")
+                return ToolResult(f"No changes written — content of {path} is identical.", is_error=False)
+
+            # Write the file
+            safe_p.write_text(updated_content, encoding="utf-8")
+
+            # Record write in context
+            if self._context is not None:
+                self._context.record_write(path, updated_content)
+
+            return ToolResult(f"✓ Edited {path} successfully.", is_error=False)
+        except Exception as e:
+            return ToolResult(f"Error editing {path}: {e}", is_error=True)
+
+
+
 class ListFilesTool(BaseTool):
     """List files and directories in the working directory."""
 

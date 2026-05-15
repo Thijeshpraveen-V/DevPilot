@@ -103,15 +103,19 @@ async def main_async():
     a2a_app.state.config = config
     a2a_app.state.registry = registry
     
-    import uvicorn
-    a2a_server_config = uvicorn.Config(
-        app=a2a_app,
-        host="0.0.0.0",
-        port=config.a2a_port,
-        log_level="error",
-    )
-    a2a_server = uvicorn.Server(a2a_server_config)
-    a2a_task = asyncio.create_task(a2a_server.serve())
+    if config.a2a_enabled:
+        import uvicorn
+        a2a_server_config = uvicorn.Config(
+            app=a2a_app,
+            host="0.0.0.0",
+            port=config.a2a_port,
+            log_level="error",
+        )
+        a2a_server = uvicorn.Server(a2a_server_config)
+        a2a_task = asyncio.create_task(a2a_server.serve())
+    else:
+        a2a_server = None
+        a2a_task = None
 
     # Initialize History
     history = HistoryManager()
@@ -140,8 +144,9 @@ async def main_async():
             context=repo_context,
         )
         history.save(session_file)
-        a2a_server.should_exit = True
-        await a2a_task
+        if a2a_server and a2a_task:
+            a2a_server.should_exit = True
+            await a2a_task
         await mcp_manager.close()
         sys.exit(0)
 
@@ -175,8 +180,9 @@ async def main_async():
 
         history.save(session_file)
 
-    a2a_server.should_exit = True
-    await a2a_task
+    if a2a_server and a2a_task:
+        a2a_server.should_exit = True
+        await a2a_task
     await mcp_manager.close()
     UI.print_info("Goodbye!")
 

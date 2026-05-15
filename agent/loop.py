@@ -29,6 +29,8 @@ async def run_agent_loop(
     Falls back transparently for providers/modes that don't support streaming
     (e.g. extended thinking).
     """
+    heal_attempts = 0
+
     for iteration in range(max_iterations):
         messages = history.get_messages()
         tools = registry.schemas
@@ -66,6 +68,8 @@ async def run_agent_loop(
             # The model is done
             break
 
+        should_break_outer = False
+
         for tool_use in response.tool_uses:
             UI.print_tool_call(tool_use.name, tool_use.input)
 
@@ -80,6 +84,23 @@ async def run_agent_loop(
                 is_error=tool_result.is_error,
             )
             history.append(tool_msg)
+            
+            if tool_result.is_error:
+                heal_attempts += 1
+                if heal_attempts >= 3:
+                    UI.print_error("Too many consecutive tool errors (>= 3). Aborting loop to prevent infinite retries.")
+                    should_break_outer = True
+                    break
+                # Inject explicit user prod to fix for this specific tool
+                history.append(provider.make_user_message(
+                    f"Tool '{tool_use.name}' failed with: {tool_result.output}\n"
+                    "Please analyze the error, fix the underlying issue, and retry."
+                ))
+            else:
+                heal_attempts = 0
+
+        if should_break_outer:
+            break
 
     else:
         UI.print_error(f"Max iterations ({max_iterations}) reached. Terminating loop.")
