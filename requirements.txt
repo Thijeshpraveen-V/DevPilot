@@ -5,6 +5,7 @@ openai>=1.30.0
 # Terminal UI
 rich>=13.7.0
 prompt_toolkit>=3.0.43
+textual>=0.52.0
 
 # A2A server
 fastapi>=0.111.0

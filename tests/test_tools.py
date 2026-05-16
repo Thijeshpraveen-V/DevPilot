@@ -281,27 +281,31 @@ class TestSearchCode:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPermissionGuard:
-    def test_no_confirm_mode_always_allows(self):
+    @pytest.mark.asyncio
+    async def test_no_confirm_mode_always_allows(self):
         guard = PermissionGuard(no_confirm=True)
-        assert guard.check("write_file", {"path": "x.py", "content": "hi"}) is True
-        assert guard.check("run_bash", {"command": "echo hi"}) is True
+        assert await guard.check("write_file", {"path": "x.py", "content": "hi"}) is True
+        assert await guard.check("run_bash", {"command": "echo hi"}) is True
 
-    def test_user_approves(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_user_approves(self, monkeypatch):
         guard = PermissionGuard(no_confirm=False)
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        assert guard.check("write_file", {"path": "x.py", "content": "hi"}) is True
+        assert await guard.check("write_file", {"path": "x.py", "content": "hi"}) is True
 
-    def test_user_declines(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_user_declines(self, monkeypatch):
         guard = PermissionGuard(no_confirm=False)
         monkeypatch.setattr("builtins.input", lambda _: "n")
-        assert guard.check("write_file", {"path": "x.py", "content": "hi"}) is False
+        assert await guard.check("write_file", {"path": "x.py", "content": "hi"}) is False
 
-    def test_keyboard_interrupt_cancels(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_keyboard_interrupt_cancels(self, monkeypatch):
         guard = PermissionGuard(no_confirm=False)
         monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(KeyboardInterrupt))
         # KeyboardInterrupt should propagate or be handled — here we just confirm no crash
         try:
-            guard.check("run_bash", {"command": "rm -rf /"})
+            await guard.check("run_bash", {"command": "rm -rf /"})
         except (KeyboardInterrupt, Exception):
             pass  # Expected
 

@@ -12,8 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.patch_stdout import patch_stdout
+from agent.tui.app import DevPilotApp
 
 from agent.a2a_server import app as a2a_app
 from agent.config import Config, ConfigError
@@ -93,8 +92,8 @@ async def main_async():
     # Initialize MCP Manager
     mcp_config_path = Path("mcp_servers.json")
     if not mcp_config_path.exists():
-        # Fallback to absolute path relative to main.py
-        mcp_config_path = Path(__file__).parent / "mcp_servers.json"
+        # Fallback to absolute path relative to project root (parent of agent/)
+        mcp_config_path = Path(__file__).parent.parent / "mcp_servers.json"
     
     mcp_manager = MCPManager(mcp_config_path)
     await mcp_manager.connect_all(registry)
@@ -125,12 +124,14 @@ async def main_async():
     if args.resume:
         if session_file.exists():
             history.load(session_file)
-            UI.print_info(f"Resumed session {session_id}")
+            if args.task:
+                UI.print_info(f"Resumed session {session_id}")
         else:
             UI.print_error(f"Session {session_id} not found at {session_file}")
             sys.exit(1)
     else:
-        UI.print_info(f"New session: {session_id}")
+        if args.task:
+            UI.print_info(f"New session: {session_id}")
 
     # Single task mode (CI)
     if args.task:
@@ -150,35 +151,15 @@ async def main_async():
         await mcp_manager.close()
         sys.exit(0)
 
-    # Interactive REPL
-    session = PromptSession()
-    UI.print_info("DevPilot is ready. Type your task or 'exit' to quit.")
-
-    while True:
-        try:
-            with patch_stdout():
-                user_input = await session.prompt_async("🚀 > ")
-        except (EOFError, KeyboardInterrupt):
-            break
-
-        user_input = user_input.strip()
-        if not user_input:
-            continue
-        if user_input.lower() in ("exit", "quit"):
-            break
-
-        history.append(provider.make_user_message(user_input))
-
-        await run_agent_loop(
-            provider=provider,
-            registry=registry,
-            history=history,
-            config=config,
-            max_iterations=config.max_iterations,
-            context=repo_context,
-        )
-
-        history.save(session_file)
+    # Launch Textual TUI Mode
+    app = DevPilotApp(
+        provider=provider,
+        registry=registry,
+        history=history,
+        config=config,
+        repo_context=repo_context,
+    )
+    await app.run_async()
 
     if a2a_server and a2a_task:
         a2a_server.should_exit = True

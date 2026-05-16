@@ -29,14 +29,14 @@ dependencies = [
     "markdown-it-py>=3.0.0",
     "pdfkit>=1.0.0",
     "pypdf>=4.0.0",
+    "textual>=0.52.0",
 ]
 
 [project.scripts]
-devpilot = "main:main"
+devpilot = "agent.cli:main"
 
 [tool.setuptools]
-packages = ["agent", "agent.providers", "agent.tools"]
-py-modules = ["main"]
+packages = ["agent", "agent.providers", "agent.tools", "agent.tui"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

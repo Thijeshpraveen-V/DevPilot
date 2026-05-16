@@ -35,15 +35,11 @@ async def run_agent_loop(
         messages = history.get_messages()
         tools = registry.schemas
 
-        # Build system prompt, injecting repo context awareness if available
-        system: str | None = None
-        if context is not None:
-            ctx_block = context.build_context_block()
-            if ctx_block:
-                system = (
-                    "You are DevPilot, an expert AI coding agent running in a terminal.\n\n"
-                    f"## Session Context\n{ctx_block}"
-                )
+        from agent.providers.system_prompt import build_system_prompt
+        
+        system = build_system_prompt(
+            repo_context_block=context.build_context_block() if context else ""
+        )
 
         try:
             # chat_stream() prints text tokens live and returns the full response.

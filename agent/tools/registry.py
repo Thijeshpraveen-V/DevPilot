@@ -51,7 +51,7 @@ class PermissionGuard:
         """Programmatically grant session-wide permission (used by tests / CI)."""
         self._allow_all = True
 
-    def check(self, tool_name: str, tool_input: dict[str, Any]) -> bool:
+    async def check(self, tool_name: str, tool_input: dict[str, Any]) -> bool:
         if self.no_confirm or self._allow_all:
             return True
 
@@ -71,24 +71,18 @@ class PermissionGuard:
             for k, v in tool_input.items():
                 preview_lines.append(f"  {k}: {v}")
 
-        UI.print_permission_prompt(tool_name, preview_lines)
+        choice = await UI.ask_permission(tool_name, preview_lines)
 
-        while True:
-            try:
-                choice = input("  [y] allow once  [a] allow all  [n] deny: ").strip().lower()
-            except (KeyboardInterrupt, EOFError):
-                print()
-                return False
-
-            if choice in ("y", "yes", ""):
-                return True
-            if choice in ("a", "all"):
-                self._allow_all = True
-                UI.print_info("Permission granted for all remaining operations this session.")
-                return True
-            if choice in ("n", "no"):
-                return False
-            # Any other input: re-prompt
+        if choice in ("y", "yes", ""):
+            return True
+        if choice in ("a", "all"):
+            self._allow_all = True
+            UI.print_info("Permission granted for all remaining operations this session.")
+            return True
+        if choice in ("n", "no"):
+            return False
+        
+        return False
 
 
 @dataclass
@@ -194,8 +188,10 @@ class ToolRegistry:
             else False
         )
 
-        if is_destructive and not self._guard.check(tool_name, tool_input):
-            return ToolResult(f"Operation cancelled by user: {tool_name}", is_error=False)
+        if is_destructive:
+            allowed = await self._guard.check(tool_name, tool_input)
+            if not allowed:
+                return ToolResult(f"Operation cancelled by user: {tool_name}", is_error=False)
 
         try:
             if tool_name in self._tools:
