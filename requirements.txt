@@ -4,7 +4,6 @@ openai>=1.30.0
 
 # Terminal UI
 rich>=13.7.0
-prompt_toolkit>=3.0.43
 textual>=0.52.0
 
 # A2A server
@@ -26,7 +25,3 @@ pydantic>=2.7.0
 # Dev / testing
 pytest>=8.2.0
 pytest-asyncio>=0.23.7
-
-# Optional: semantic search (RAG) — install for 'semantic_search' tool
-# chromadb>=0.4.0
-# sentence-transformers>=2.2.0

@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from agent.tools.base import BaseTool, ToolResult
 from agent.tools.search_code import SearchCodeTool
-from agent.tools.semantic_search import SemanticSearchTool
+
 from agent.tools.shell import RunBashTool
 from agent.tools.a2a import A2ATool
 from agent.tools.web_search import WebSearchTool
-from agent.tools.memory_store import MemoryStoreTool
+
 from agent.tools.git_ops import GitStatusTool, GitCommitTool
 from agent.tools.doc_gen import DocGenTool
 from agent.tools.diagram import DiagramTool
@@ -118,7 +118,7 @@ class ToolRegistry:
             ListFilesTool(self._config, self._context),
             RunBashTool(self._config),
             SearchCodeTool(self._config),
-            SemanticSearchTool(self._config, self._context),
+
             GitStatusTool(self._config),
             GitCommitTool(self._config),
             DocGenTool(self._config),
@@ -128,8 +128,6 @@ class ToolRegistry:
         if self._config.web_search_enabled:
             tools.append(WebSearchTool(self._config))
 
-        if self._config.memory_enabled:
-            tools.append(MemoryStoreTool(self._config))
 
         if self._config.a2a_enabled:
             tools.append(A2ATool(self._config))

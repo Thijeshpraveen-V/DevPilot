@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devpilot-cli"
+name = "devpilot-agentic-cli"
 version = "1.0.0"
 description = "Autonomous AI coding agent for your terminal — Claude, GPT-4o, Groq, Ollama, and more"
 authors = [{ name = "Thijesh Praveen V" }]
@@ -46,10 +46,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-rag = [
-    "chromadb>=0.4.0",
-    "sentence-transformers>=2.2.0",
-]
+pdf = ["pdfkit>=1.0.0"]
 dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.7",

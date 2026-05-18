@@ -245,37 +245,4 @@ class TestE2EHealLoopAbort:
         assert registry.execute.call_count == 3
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# E2E: Semantic search tool graceful degradation
-# ═══════════════════════════════════════════════════════════════════════════════
 
-class TestE2ESemanticSearch:
-    @pytest.mark.asyncio
-    async def test_semantic_search_degrades_gracefully_without_deps(self, tmp_path: Path):
-        """
-        If chromadb/sentence-transformers aren't installed, semantic_search
-        returns a not-available message (is_error=False), not a crash.
-        """
-        config = make_config(tmp_path)
-        context = RepoContext(str(tmp_path))
-        # Force vector_store to None to simulate missing deps
-        context.vector_store = None
-        registry = ToolRegistry(config, _context=context)
-
-        provider = make_provider(
-            tool_turn("semantic_search", {"query": "where do we handle errors"}),
-            end_turn("I see semantic search is unavailable."),
-        )
-
-        with patch("agent.ui.UI.print_tool_call"), patch("agent.ui.UI.print_tool_result"), \
-             patch("agent.ui.UI.print_assistant_message"):
-            await run_agent_loop(
-                provider=provider,
-                registry=registry,
-                history=HistoryManager(),
-                config=config,
-                context=context,
-            )
-
-        # Should have completed (not crashed) — provider called twice
-        assert provider.chat_stream.call_count == 2

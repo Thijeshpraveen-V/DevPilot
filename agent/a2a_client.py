@@ -92,30 +92,3 @@ async def delegate_task_to_peer(peer_url: str, prompt: str, token: str | None = 
         return ToolResult(f"A2A connection error: {e}", is_error=True)
 
 
-# The schema to expose this to the DevPilot ToolRegistry
-A2A_DELEGATE_SCHEMA = {
-    "name": "a2a_delegate_task",
-    "description": (
-        "Delegate a subtask to an external A2A (Agent-to-Agent) peer. "
-        "Use this when you need help from a specialist agent or another node. "
-        "Provide the base URL of the peer agent and the task prompt."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "peer_url": {
-                "type": "string",
-                "description": "Base URL of the peer agent (e.g., http://localhost:8001)"
-            },
-            "prompt": {
-                "type": "string",
-                "description": "The coding task or instruction to delegate."
-            },
-            "token": {
-                "type": "string",
-                "description": "Optional Bearer token if the peer requires authentication."
-            }
-        },
-        "required": ["peer_url", "prompt"]
-    }
-}

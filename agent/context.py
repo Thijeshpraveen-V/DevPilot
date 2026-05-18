@@ -14,16 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import ast
-import re
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-try:
-    from agent.vector_index import VectorStore
-    _RAG_AVAILABLE = True
-except ImportError:
-    _RAG_AVAILABLE = False
-    VectorStore = None  # type: ignore[assignment,misc]
+
 
 
 class RepoContext:
@@ -42,14 +35,7 @@ class RepoContext:
         self._read_files: dict[str, str] = {}
         # path (relative str) -> content hash at write time
         self._written_files: dict[str, str] = {}
-        # Semantic search vector store (optional)
-        self.vector_store: "VectorStore | None" = None
-        if VectorStore is not None:
-            try:
-                self.vector_store = VectorStore(workdir)
-                self._index_repo()
-            except Exception:
-                self.vector_store = None
+
 
     # ── Recording ─────────────────────────────────────────────────────────────
 
@@ -64,12 +50,7 @@ class RepoContext:
         self._written_files[rel] = self._hash(content)
         # Also update read cache so model knows current on-disk state
         self._read_files[rel] = self._hash(content)
-        # Re-index the modified file in the vector store
-        if self.vector_store is not None:
-            try:
-                self.vector_store.index_file(rel, content)
-            except Exception:
-                pass
+
 
     # ── Stale detection ───────────────────────────────────────────────────────
 
@@ -118,59 +99,7 @@ class RepoContext:
 
         return "\n".join(lines)
 
-    # ── Vector index ──────────────────────────────────────────────────────────
 
-    def _index_repo(self) -> None:
-        """
-        Walk the repo and index all text files into the vector store.
-        Skips binary files and files larger than 500KB.
-        Caps at 200 files.
-        """
-        if self.vector_store is None:
-            return
-
-        ignores = {
-            ".git", "node_modules", ".venv", "__pycache__", "dist",
-            "build", ".next", ".tox", "coverage_html_report", ".devpilot_sessions",
-            ".chromadb",
-        }
-        text_extensions = {
-            ".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".txt",
-            ".json", ".yaml", ".yml", ".toml", ".cfg", ".ini", ".sh",
-            ".html", ".css", ".scss", ".env",
-        }
-        indexed = 0
-        max_files = 200
-
-        def _walk(directory: Path) -> None:
-            nonlocal indexed
-            if indexed >= max_files:
-                return
-            try:
-                for item in sorted(directory.iterdir()):
-                    if indexed >= max_files:
-                        break
-                    if item.name.startswith(".") and item.name not in (".env", ".gitignore"):
-                        continue
-                    if item.name in ignores or item.name.endswith(".egg-info"):
-                        continue
-                    if item.is_dir():
-                        _walk(item)
-                    elif item.is_file() and item.suffix.lower() in text_extensions:
-                        # Skip large files
-                        if item.stat().st_size >= 500_000:
-                            continue
-                        try:
-                            content = item.read_text(encoding="utf-8", errors="replace")
-                            rel = str(item.relative_to(self._workdir))
-                            self.vector_store.index_file(rel, content)  # type: ignore[union-attr]
-                            indexed += 1
-                        except Exception:
-                            pass
-            except OSError:
-                pass
-
-        _walk(self._workdir)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

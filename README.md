@@ -1,10 +1,10 @@
 # DevPilot 🚀
 
-[![PyPI](https://img.shields.io/pypi/v/devpilot-cli)](https://pypi.org/project/devpilot-cli/)
-[![Python](https://img.shields.io/pypi/pyversions/devpilot-cli)](https://pypi.org/project/devpilot-cli/)
+[![PyPI](https://img.shields.io/pypi/v/devpilot-agentic-cli)](https://pypi.org/project/devpilot-agentic-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/devpilot-agentic-cli)](https://pypi.org/project/devpilot-agentic-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**An autonomous AI coding agent for your terminal.** DevPilot gives Claude, GPT-4o, Groq, Mistral, or any local model a full suite of tools — file read/write, bash execution, code search, semantic RAG search, git, MCP, and more — orchestrated into a self-healing agentic loop inside a rich Textual TUI.
+**An autonomous AI coding agent for your terminal.** DevPilot gives Claude, GPT-4o, Groq, Mistral, or any local model a full suite of tools — file read/write, bash execution, code search, git, MCP, and more — orchestrated into a self-healing agentic loop inside a rich Textual TUI.
 
 ```
 ┌─ DevPilot ──────────────────────────────────────────────────────┐
@@ -29,12 +29,12 @@
 |---|---|
 | **File ops** | `read_file`, `write_file`, `edit_file` (surgical replace), `list_files` |
 | **Shell** | `run_bash` with timeout, blocked-command guard, and auto-heal loop |
-| **Code search** | Regex `search_code` + `semantic_search` (RAG via ChromaDB) |
+| **Code search** | Regex `search_code` |
 | **Pre-flight linting** | Syntax-checks Python (`ast.parse`) and JS/TS (`node --check`) before writing |
 | **Git** | `git_status`, `git_commit` with surgical file staging |
 | **Documentation** | `doc_gen` (markdown), `diagram` (Mermaid) |
 | **Web search** | `web_search` via Tavily (optional) |
-| **Memory** | Long-term memory store across sessions (optional) |
+
 | **MCP** | Connect any MCP server via `mcp_servers.json` |
 | **A2A** | Agent-to-agent task delegation over HTTP |
 | **Providers** | Anthropic, OpenAI, Groq, Together AI, Mistral, Ollama, any OpenAI-compatible endpoint |
@@ -46,19 +46,20 @@
 **Requires Python ≥ 3.11.**
 
 ```bash
-pip install devpilot-cli
+pip install devpilot-agentic-cli
 devpilot
 ```
 
 That's it. On first run DevPilot launches a setup wizard — pick your provider, enter your API key, choose a model. It saves everything to a `.env` file and opens the TUI. Every subsequent run starts immediately.
 
-### Optional: Semantic Search (RAG)
+### Optional Features
 
+**PDF Documentation Generation**
+Enable the `generate_docs` tool to export PDFs:
 ```bash
-pip install devpilot-cli[rag]
+pip install devpilot-agentic-cli[pdf]
 ```
-
-Enables the `semantic_search` tool — find code by meaning rather than exact keywords. Downloads ~80MB sentence-transformer model on first use and indexes your repo automatically.
+*Note: You also need to install the [wkhtmltopdf](https://wkhtmltopdf.org/downloads.html) system binary.*
 
 ---
 
@@ -129,7 +130,7 @@ Options:
   --a2a-port PORT                 A2A server port (default: 8000)
   --no-a2a                        Disable A2A server
   --no-web-search                 Disable Tavily web search
-  --no-memory                     Disable long-term memory
+
   --setup                         Re-run the setup wizard
 ```
 
@@ -189,8 +190,7 @@ agent/
 ├── setup_wizard.py       First-run interactive configuration wizard
 ├── loop.py               Core agentic loop (plan → act → verify → heal)
 ├── config.py             Config dataclass — all settings from env vars
-├── context.py            RepoContext — file awareness, AST map, vector index
-├── vector_index.py       ChromaDB + sentence-transformers RAG
+├── context.py            RepoContext — file awareness, AST map
 ├── history.py            Conversation history + smart context pruning
 ├── providers/
 │   ├── anthropic_provider.py
@@ -201,12 +201,11 @@ agent/
 │   ├── fs.py             read_file, write_file (pre-flight lint), edit_file, list_files
 │   ├── shell.py          run_bash
 │   ├── search_code.py    regex search
-│   ├── semantic_search.py RAG search
 │   ├── git_ops.py        git_status, git_commit
 │   ├── doc_gen.py        doc_gen
 │   ├── diagram.py        diagram (Mermaid)
 │   ├── web_search.py     web_search (Tavily)
-│   ├── memory_store.py   long-term memory
+
 │   ├── a2a.py            A2A delegation
 │   └── registry.py       ToolRegistry + PermissionGuard
 └── tui/
@@ -218,7 +217,7 @@ agent/
 ## Running Tests
 
 ```bash
-pip install devpilot-cli[dev]
+pip install devpilot-agentic-cli[dev]
 pytest
 ```
 
@@ -231,7 +230,7 @@ pytest
 ```bash
 git clone https://github.com/Thijeshpraveen-V/DevPilot
 cd DevPilot
-pip install -e ".[dev,rag]"
+pip install -e ".[dev]"
 devpilot --setup
 ```
 
