@@ -3,10 +3,7 @@
 
 # ── Local DevPilot Data ───────────────────────────────────────
 .devpilot_sessions/
-
-# ── Specific Documents ─────────────────────────────────────────
-DevPilot_SRS_v1.0.docx
-srs_content.txt
+.chromadb/
 
 # ── Python Standard Ignores ────────────────────────────────────
 # Byte-compiled / optimized / DLL files
@@ -45,5 +42,3 @@ wheels/
 .tox/
 .coverage
 htmlcov/
-DevPilot_SRS_v1.0.docx
-srs_content.txt

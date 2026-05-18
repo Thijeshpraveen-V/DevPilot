@@ -34,17 +34,26 @@ from agent.tools.search_code import SearchCodeTool
 
 # ── Shared fixture: a minimal Config-like object ──────────────────────────────
 
-class FakeConfig:
-    """Minimal config for tool tests."""
-    workdir: str
-    no_confirm: bool = True
-    a2a_enabled: bool = False
-    web_search_enabled: bool = False
-    memory_enabled: bool = False
+from agent.config import Config
 
-    def __init__(self, workdir: str, no_confirm: bool = True):
-        self.workdir = workdir
-        self.no_confirm = no_confirm
+def FakeConfig(workdir: str, no_confirm: bool = True) -> Config:
+    """Minimal config for tool tests."""
+    return Config(
+        provider="anthropic",
+        model="claude-3-5-sonnet-20241022",
+        base_url=None,
+        max_iterations=10,
+        no_confirm=no_confirm,
+        a2a_port=8000,
+        a2a_token=None,
+        workdir=workdir,
+        extended_thinking=False,
+        thinking_budget=10000,
+        web_search_enabled=False,
+        memory_enabled=False,
+        a2a_enabled=False,
+        sessions_dir=Path(workdir)
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -131,6 +140,41 @@ class TestWriteFile:
         tool = WriteFileTool(FakeConfig(str(tmp_path)))
         result = await tool.execute(path="counted.txt", content="12345")
         assert "5" in result.output
+
+    @pytest.mark.asyncio
+    async def test_preflight_linting_blocks_invalid_python(self, tmp_path: Path):
+        tool = WriteFileTool(FakeConfig(str(tmp_path)))
+        result = await tool.execute(path="bad.py", content="def invalid_syntax(\n    pass\n")
+        assert result.is_error
+        assert "Pre-Flight Linting Failed" in result.output
+        assert "SyntaxError" in result.output
+        assert not (tmp_path / "bad.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_preflight_linting_allows_valid_python(self, tmp_path: Path):
+        tool = WriteFileTool(FakeConfig(str(tmp_path)))
+        result = await tool.execute(path="good.py", content="def valid_syntax():\n    pass\n")
+        assert not result.is_error
+        assert (tmp_path / "good.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_preflight_linting_blocks_invalid_js(self, tmp_path: Path, monkeypatch):
+        import subprocess
+        original_run = subprocess.run
+        
+        def mock_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "node":
+                return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="SyntaxError: Unexpected token")
+            return original_run(cmd, *args, **kwargs)
+            
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        
+        tool = WriteFileTool(FakeConfig(str(tmp_path)))
+        result = await tool.execute(path="bad.js", content="const x = ;\n")
+        assert result.is_error
+        assert "Pre-Flight Linting Failed" in result.output
+        assert "Syntax Error" in result.output
+        assert not (tmp_path / "bad.js").exists()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

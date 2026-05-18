@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from agent.tools.base import BaseTool, ToolResult
 from agent.tools.search_code import SearchCodeTool
+from agent.tools.semantic_search import SemanticSearchTool
 from agent.tools.shell import RunBashTool
 from agent.tools.a2a import A2ATool
 from agent.tools.web_search import WebSearchTool
@@ -117,6 +118,7 @@ class ToolRegistry:
             ListFilesTool(self._config, self._context),
             RunBashTool(self._config),
             SearchCodeTool(self._config),
+            SemanticSearchTool(self._config, self._context),
             GitStatusTool(self._config),
             GitCommitTool(self._config),
             DocGenTool(self._config),

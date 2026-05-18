@@ -1,9 +1,12 @@
 """
-main.py
-───────
+agent/cli.py
+─────────────
 CLI entry point for DevPilot.
-Parses arguments, initializes components, and starts the interactive REPL.
+Parses arguments, runs first-run setup wizard if needed,
+initializes components, and starts the interactive TUI or CI loop.
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -11,8 +14,6 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-
-from agent.tui.app import DevPilotApp
 
 from agent.a2a_server import app as a2a_app
 from agent.config import Config, ConfigError
@@ -25,27 +26,29 @@ from agent.ui import UI
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="DevPilot: AI-Powered Terminal Coding Agent")
-    parser.add_argument("--provider", choices=["anthropic", "openai"], help="Model provider to use")
-    parser.add_argument("--model", help="Specific model name to use")
-    parser.add_argument("--base-url", help="Base URL for local models (e.g., Ollama)")
-    parser.add_argument("--no-confirm", action="store_true", help="Skip confirmation for destructive actions")
-    parser.add_argument("--thinking", action="store_true", help="Enable extended thinking (Anthropic Claude only)")
+    parser = argparse.ArgumentParser(
+        prog="devpilot",
+        description="DevPilot — Autonomous AI coding agent for your terminal",
+    )
+    parser.add_argument("--provider", choices=["anthropic", "openai"], help="Model provider")
+    parser.add_argument("--model", help="Model name")
+    parser.add_argument("--base-url", help="OpenAI-compatible base URL (e.g. Ollama)")
+    parser.add_argument("--no-confirm", action="store_true", help="Skip confirmation prompts")
+    parser.add_argument("--thinking", action="store_true", help="Enable extended thinking (Claude only)")
     parser.add_argument("--thinking-budget", type=int, help="Extended thinking token budget (default: 10000)")
-    parser.add_argument("--no-web-search", action="store_true", help="Disable Tavily web search tool")
-    parser.add_argument("--no-memory", action="store_true", help="Disable long-term memory (ChromaDB)")
+    parser.add_argument("--no-web-search", action="store_true", help="Disable web search tool")
+    parser.add_argument("--no-memory", action="store_true", help="Disable long-term memory")
     parser.add_argument("--workdir", help="Working directory for file operations (default: cwd)")
     parser.add_argument("--task", help="Run a single task and exit (CI mode)")
-    parser.add_argument("--resume", help="Resume a session by ID")
+    parser.add_argument("--resume", help="Resume a previous session by ID")
     parser.add_argument("--a2a-port", type=int, help="A2A server port (default: 8000)")
-    parser.add_argument("--no-a2a", action="store_true", help="Disable A2A server endpoint")
+    parser.add_argument("--no-a2a", action="store_true", help="Disable A2A server")
+    parser.add_argument("--setup", action="store_true", help="Re-run the setup wizard")
     return parser.parse_args()
 
 
-async def main_async():
-    args = parse_args()
-
-    # Apply overrides from CLI to environment variables before loading config
+def _apply_cli_overrides(args: argparse.Namespace) -> None:
+    """Push CLI flag values into env vars so Config.load() picks them up."""
     if args.provider:
         os.environ["DEVPILOT_PROVIDER"] = args.provider
     if args.model:
@@ -69,55 +72,109 @@ async def main_async():
     if args.no_a2a:
         os.environ["DEVPILOT_NO_A2A"] = "true"
 
+
+def _ensure_api_key(config: Config, args: argparse.Namespace) -> Config:
+    """
+    Check for a valid API key. If missing, run the setup wizard.
+    Re-loads config after wizard so the new key is picked up.
+    Returns the (possibly reloaded) config.
+    """
+    from agent.config import REQUIRED_ENV_KEYS
+    key_name = REQUIRED_ENV_KEYS[config.provider]
+
+    if config.active_api_key:
+        return config  # Key present — nothing to do
+
+    # Force re-run wizard if --setup flag passed
+    if args.setup or not config.active_api_key:
+        from agent.setup_wizard import run_setup_wizard
+        success = run_setup_wizard(env_path=Path(".env"))
+        if not success:
+            # Wizard skipped (CI/no TTY) or failed — print helpful error
+            UI.print_error(
+                f"Missing API key for provider '{config.provider}'.\n"
+                f"  Set {key_name} in your environment or .env file.\n"
+                f"  Run 'devpilot --setup' to configure interactively."
+            )
+            sys.exit(1)
+
+        # Reload config so the new env vars are picked up
+        try:
+            config = Config.load()
+            _apply_cli_overrides(args)
+            config = Config.load()
+        except ConfigError as e:
+            UI.print_error(str(e))
+            sys.exit(1)
+
+    return config
+
+
+async def main_async() -> None:
+    args = parse_args()
+    _apply_cli_overrides(args)
+
+    # Load config
     try:
         config = Config.load()
     except ConfigError as e:
         UI.print_error(str(e))
         sys.exit(1)
 
+    # Handle --setup flag (force wizard even if key exists)
+    if args.setup:
+        from agent.setup_wizard import run_setup_wizard
+        run_setup_wizard(env_path=Path(".env"))
+        try:
+            config = Config.load()
+        except ConfigError as e:
+            UI.print_error(str(e))
+            sys.exit(1)
+    else:
+        # Ensure API key — runs wizard if missing
+        config = _ensure_api_key(config, args)
+
+    # Final key validation (catches invalid key format etc.)
     try:
         config.validate_api_key()
     except ConfigError as e:
         UI.print_error(str(e))
         sys.exit(1)
 
-    # Initialize Provider
+    # Wire up provider, context, registry
     provider = create_provider(config)
 
-    # Initialize Context and Registry
     from agent.context import RepoContext
     repo_context = RepoContext(config.workdir)
     registry = ToolRegistry(config, _context=repo_context)
 
-    # Initialize MCP Manager
+    # MCP
     mcp_config_path = Path("mcp_servers.json")
     if not mcp_config_path.exists():
-        # Fallback to absolute path relative to project root (parent of agent/)
         mcp_config_path = Path(__file__).parent.parent / "mcp_servers.json"
-    
     mcp_manager = MCPManager(mcp_config_path)
     await mcp_manager.connect_all(registry)
 
-    # Initialize A2A Server
-    a2a_app.state.config = config
+    # A2A server
+    a2a_app.state.config   = config
     a2a_app.state.registry = registry
-    
+
     if config.a2a_enabled:
         import uvicorn
-        a2a_server_config = uvicorn.Config(
+        a2a_cfg = uvicorn.Config(
             app=a2a_app,
             host="0.0.0.0",
             port=config.a2a_port,
             log_level="error",
         )
-        a2a_server = uvicorn.Server(a2a_server_config)
-        a2a_task = asyncio.create_task(a2a_server.serve())
+        a2a_server = uvicorn.Server(a2a_cfg)
+        a2a_task   = asyncio.create_task(a2a_server.serve())
     else:
         a2a_server = None
-        a2a_task = None
+        a2a_task   = None
 
-    # Initialize History
-    history = HistoryManager()
+    # History / session
+    history    = HistoryManager()
     session_id = args.resume or datetime.now().strftime("%Y%m%d_%H%M%S")
     session_file = config.sessions_dir / f"{session_id}.json"
 
@@ -125,15 +182,15 @@ async def main_async():
         if session_file.exists():
             history.load(session_file)
             if args.task:
-                UI.print_info(f"Resumed session {session_id}")
+                UI.print_info(f"Resumed session: {session_id}")
         else:
-            UI.print_error(f"Session {session_id} not found at {session_file}")
+            UI.print_error(f"Session '{session_id}' not found at {session_file}")
             sys.exit(1)
     else:
         if args.task:
             UI.print_info(f"New session: {session_id}")
 
-    # Single task mode (CI)
+    # ── CI / single-task mode ─────────────────────────────────────────────────
     if args.task:
         history.append(provider.make_user_message(args.task))
         await run_agent_loop(
@@ -151,7 +208,8 @@ async def main_async():
         await mcp_manager.close()
         sys.exit(0)
 
-    # Launch Textual TUI Mode
+    # ── Interactive TUI mode ──────────────────────────────────────────────────
+    from agent.tui.app import DevPilotApp
     app = DevPilotApp(
         provider=provider,
         registry=registry,
@@ -165,10 +223,9 @@ async def main_async():
         a2a_server.should_exit = True
         await a2a_task
     await mcp_manager.close()
-    UI.print_info("Goodbye!")
 
 
-def main():
+def main() -> None:
     asyncio.run(main_async())
 
 

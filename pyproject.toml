@@ -3,18 +3,34 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devpilot"
-version = "0.1.0"
-description = "AI-Powered Terminal Coding Agent with MCP and A2A support"
+name = "devpilot-cli"
+version = "1.0.0"
+description = "Autonomous AI coding agent for your terminal — Claude, GPT-4o, Groq, Ollama, and more"
 authors = [{ name = "Thijesh Praveen V" }]
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
+keywords = [
+    "ai", "coding-agent", "cli", "llm",
+    "anthropic", "openai", "groq", "ollama",
+    "claude", "gpt4", "terminal", "agent",
+    "mcp", "textual", "tui",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "anthropic>=0.25.0",
-    "openai>=1.30.0",
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
     "rich>=13.7.0",
-    "prompt_toolkit>=3.0.43",
+    "textual>=0.52.0",
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "sse-starlette>=2.1.0",
@@ -25,12 +41,24 @@ dependencies = [
     "pydantic>=2.7.0",
     "tavily-python>=0.3.0",
     "GitPython>=3.1.40",
-    "chromadb>=0.4.22",
     "markdown-it-py>=3.0.0",
-    "pdfkit>=1.0.0",
     "pypdf>=4.0.0",
-    "textual>=0.52.0",
 ]
+
+[project.optional-dependencies]
+rag = [
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/Thijeshpraveen-V/DevPilot"
+Repository = "https://github.com/Thijeshpraveen-V/DevPilot"
+Issues = "https://github.com/Thijeshpraveen-V/DevPilot/issues"
 
 [project.scripts]
 devpilot = "agent.cli:main"

@@ -11,8 +11,12 @@ Improvements over original:
 
 from __future__ import annotations
 
+import ast
 import difflib
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +52,55 @@ def _unified_diff(old_text: str, new_text: str, path: str) -> str:
         lineterm="",
     )
     return "".join(diff)
+
+
+def _lint_content(path: str, content: str) -> str | None:
+    """
+    Perform pre-flight syntax checks on code content before writing.
+    Returns an error message if linting fails, or None if successful.
+    """
+    suffix = Path(path).suffix.lower()
+    if suffix == ".py":
+        try:
+            ast.parse(content)
+            return None
+        except SyntaxError as e:
+            error_line = e.text.rstrip() if e.text else ""
+            marker = " " * ((e.offset or 1) - 1) + "^" if e.offset else ""
+            return f"SyntaxError in {path} at line {e.lineno}:\n{error_line}\n{marker}\n{e.msg}"
+        except Exception as e:
+            return f"Error parsing {path}: {e}"
+
+    elif suffix in {".js", ".jsx", ".ts", ".tsx"}:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode="w", encoding="utf-8") as f:
+            f.write(content)
+            tmp_path = f.name
+
+        try:
+            if suffix in {".js", ".jsx"}:
+                cmd = ["node", "--check", tmp_path]
+            else:
+                cmd = ["npx.cmd" if sys.platform == "win32" else "npx", "tsc", "--noEmit", tmp_path]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                error_output = result.stderr if result.stderr else result.stdout
+                error_output = error_output.replace(tmp_path, path)
+                return f"Syntax Error in {path}:\n{error_output}"
+            return None
+        except FileNotFoundError:
+            # node or npx not installed, skip gracefully
+            return None
+        except Exception as e:
+            return f"Error linting {path}: {e}"
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    return None
 
 
 class ReadFileTool(BaseTool):
@@ -165,6 +218,10 @@ class WriteFileTool(BaseTool):
         try:
             safe_p = _safe_path(self._config.workdir, path)
 
+            lint_error = _lint_content(path, content)
+            if lint_error:
+                return ToolResult(f"Pre-Flight Linting Failed:\n{lint_error}", is_error=True)
+
             # Compute and display diff before writing
             if safe_p.exists() and safe_p.is_file():
                 old_content = safe_p.read_text(encoding="utf-8", errors="replace")
@@ -259,6 +316,10 @@ class EditFileTool(BaseTool):
 
             # Perform surgical replacement
             updated_content = file_content.replace(old_content, new_content)
+
+            lint_error = _lint_content(path, updated_content)
+            if lint_error:
+                return ToolResult(f"Pre-Flight Linting Failed:\n{lint_error}", is_error=True)
 
             # Compute and display diff before writing
             diff = _unified_diff(file_content, updated_content, path)
