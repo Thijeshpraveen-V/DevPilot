@@ -15,15 +15,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from agent.tools.base import BaseTool, ToolResult
-from agent.tools.search_code import SearchCodeTool
-
-from agent.tools.shell import RunBashTool
-from agent.tools.a2a import A2ATool
-from agent.tools.web_search import WebSearchTool
-
-from agent.tools.git_ops import GitStatusTool, GitCommitTool
-from agent.tools.doc_gen import DocGenTool
-from agent.tools.diagram import DiagramTool
 from agent.ui import UI
 
 if TYPE_CHECKING:
@@ -108,8 +99,15 @@ class ToolRegistry:
 
     def _register_builtins(self) -> None:
         """Register all default native tools."""
-        # Import here to avoid circular imports at module load time
+        # All heavy tool imports are lazy here — keeps startup fast.
+        # GitPython, tavily, shell, and other deps only load when the
+        # registry is instantiated inside main_async(), not at module import time.
         from agent.tools.fs import ListFilesTool, ReadFileTool, WriteFileTool, EditFileTool
+        from agent.tools.shell import RunBashTool
+        from agent.tools.search_code import SearchCodeTool
+        from agent.tools.git_ops import GitStatusTool, GitCommitTool
+        from agent.tools.doc_gen import DocGenTool
+        from agent.tools.diagram import DiagramTool
 
         tools: list[BaseTool] = [
             ReadFileTool(self._config, self._context),
@@ -118,7 +116,6 @@ class ToolRegistry:
             ListFilesTool(self._config, self._context),
             RunBashTool(self._config),
             SearchCodeTool(self._config),
-
             GitStatusTool(self._config),
             GitCommitTool(self._config),
             DocGenTool(self._config),
@@ -126,10 +123,11 @@ class ToolRegistry:
         ]
 
         if self._config.web_search_enabled:
+            from agent.tools.web_search import WebSearchTool
             tools.append(WebSearchTool(self._config))
 
-
         if self._config.a2a_enabled:
+            from agent.tools.a2a import A2ATool
             tools.append(A2ATool(self._config))
 
         for t in tools:

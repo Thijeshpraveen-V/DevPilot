@@ -429,22 +429,25 @@ class DevPilotApp(App):
         """Re-enable input when the agent loop finishes."""
         if event.worker.name == "run_agent_task" and event.state.name in ("SUCCESS", "ERROR", "CANCELLED"):
             self.spinner.display = False
-            
+
             try:
                 inp = self.query_one("#chat-input", Input)
                 inp.disabled = False
                 inp.focus()
             except Exception:
                 pass
-            
-            # If we had a buffered stream, write it out
+
+            # Safety fallback: if AssistantMessageEvent never arrived (edge case),
+            # finalize the stream now so the response is never lost.
             if self._active_stream:
                 final_text = self._active_stream._buffer
                 await self._active_stream.remove()
                 self._active_stream = None
-                await self.chat_log.mount(ChatMessage("DevPilot", final_text))
-                self.chat_log.scroll_end(animate=False)
-                self._last_assistant_message = final_text
+                if final_text:
+                    await self.chat_log.mount(ChatMessage("DevPilot", final_text))
+                    self.chat_log.scroll_end(animate=False)
+                    self._last_assistant_message = final_text
+
             # Refresh tree to show newly read/written files
             self._refresh_project_map()
 
@@ -479,14 +482,16 @@ class DevPilotApp(App):
     @on(ThinkingEvent)
     async def handle_ui_events(self, event: UIEvent) -> None:
         if isinstance(event, AssistantMessageEvent):
-            final_text = ""
             if self._active_stream:
+                # Streaming was used — use the already-buffered text.
+                # Ignore event.text to avoid duplication (it's the same content).
                 final_text = self._active_stream._buffer
                 await self._active_stream.remove()
                 self._active_stream = None
-            if event.text.strip():
-                final_text += ("\n" + event.text.strip()) if final_text else event.text.strip()
-                
+            else:
+                # Non-streaming path — event.text is the only source.
+                final_text = event.text.strip()
+
             if final_text:
                 await self.chat_log.mount(ChatMessage("DevPilot", final_text))
                 self.chat_log.scroll_end(animate=False)

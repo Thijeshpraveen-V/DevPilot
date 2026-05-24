@@ -2,11 +2,11 @@
   "mcpServers": [
     {
       "name": "filesystem",
-      "description": "Local filesystem read/write/search via official MCP server",
+      "description": "Local filesystem read/write/search via official MCP server. Set enabled=true to activate (requires Node.js / npx).",
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "github",

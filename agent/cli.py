@@ -12,17 +12,98 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
-from agent.a2a_server import app as a2a_app
+
+def _fix_windows_console() -> None:
+    """
+    Enable ANSI/VT100 support and UTF-8 encoding in Windows terminals.
+
+    Root cause of the blank black CMD screen:
+      - CMD.exe does NOT enable Virtual Terminal Processing by default.
+      - Textual sends ANSI escape sequences to probe terminal capabilities.
+      - Without VT support, CMD either hangs or renders nothing.
+      - PowerShell has VT enabled by default → works immediately.
+
+    Fixes applied:
+      1. Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING via Windows API (ctypes).
+      2. Switch stdout/stderr to UTF-8 so → ✓ etc don't crash in cp1252.
+      3. Set TERM / COLORTERM so Textual skips slow capability negotiation.
+    """
+    if sys.platform != "win32":
+        return
+
+    # ── 1. Enable Virtual Terminal Processing ─────────────────────────────────
+    try:
+        import ctypes
+        import ctypes.wintypes
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        ENABLE_PROCESSED_OUTPUT            = 0x0001
+
+        for handle_id in (-10, -11):   # STD_INPUT=-10, STD_OUTPUT=-11
+            handle = kernel32.GetStdHandle(handle_id)
+            if handle and handle != -1:
+                mode = ctypes.wintypes.DWORD(0)
+                if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                    new_mode = (mode.value
+                                | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                                | ENABLE_PROCESSED_OUTPUT)
+                    kernel32.SetConsoleMode(handle, new_mode)
+    except Exception:
+        pass   # non-fatal — worst case CMD is slow, not broken
+
+    # ── 2. Switch stdout/stderr to UTF-8 ──────────────────────────────────────
+    # Prevents UnicodeEncodeError on → ✓ ✗ characters in cp1252 CMD sessions
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        # Also tell Windows console host to use UTF-8 codepage
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+    # ── 3. Hint terminal type so Textual doesn't hang on capability detection ─
+    # Textual checks these env vars first; without them it sends probe sequences
+    # that CMD ignores, causing a multi-second hang.
+    os.environ.setdefault("TERM", "xterm-256color")
+    os.environ.setdefault("COLORTERM", "truecolor")
+
+
+# Run immediately — must happen before any rich/textual import
+_fix_windows_console()
+
+# Python version guard — must run before any other import
+if sys.version_info < (3, 11):
+    print(
+        f"\n[DevPilot] Python 3.11 or newer is required.\n"
+        f"  You are running Python {sys.version_info.major}.{sys.version_info.minor}.\n"
+        f"  Download the latest Python from: https://python.org/downloads/\n"
+    )
+    sys.exit(1)
+
+# Module-level imports: only lightweight config/ui — everything else is lazy inside main_async()
 from agent.config import Config, ConfigError
-from agent.history import HistoryManager
-from agent.loop import run_agent_loop
-from agent.mcp_client import MCPManager
 from agent.providers.factory import create_provider
-from agent.tools import ToolRegistry
 from agent.ui import UI
+
+_T0 = time.perf_counter()
+
+def _log_startup(msg: str) -> None:
+    """Print a startup progress line. Helps users see DevPilot is loading."""
+    elapsed = time.perf_counter() - _T0
+    # Use plain ASCII fallback so CMD doesn't choke on escape codes if VT failed
+    print(f"\r[{elapsed:.1f}s] {msg}...", end="", flush=True)
+
+def _clear_startup() -> None:
+    """Clear the startup progress line once TUI takes over."""
+    print("\r" + " " * 60 + "\r", end="", flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,7 +169,8 @@ def _ensure_api_key(config: Config, args: argparse.Namespace) -> Config:
     # Force re-run wizard if --setup flag passed
     if args.setup or not config.active_api_key:
         from agent.setup_wizard import run_setup_wizard
-        success = run_setup_wizard(env_path=Path(".env"))
+        _user_env = Path.home() / ".devpilot" / ".env"
+        success = run_setup_wizard(env_path=_user_env)
         if not success:
             # Wizard skipped (CI/no TTY) or failed — print helpful error
             UI.print_error(
@@ -115,6 +197,7 @@ async def main_async() -> None:
     _apply_cli_overrides(args)
 
     # Load config
+    _log_startup("Loading configuration")
     try:
         config = Config.load()
     except ConfigError as e:
@@ -123,8 +206,11 @@ async def main_async() -> None:
 
     # Handle --setup flag (force wizard even if key exists)
     if args.setup:
+        _clear_startup()
         from agent.setup_wizard import run_setup_wizard
-        run_setup_wizard(env_path=Path(".env"))
+        _user_env = Path.home() / ".devpilot" / ".env"
+        run_setup_wizard(env_path=_user_env)
+
         try:
             config = Config.load()
         except ConfigError as e:
@@ -141,28 +227,36 @@ async def main_async() -> None:
         UI.print_error(str(e))
         sys.exit(1)
 
-    # Wire up provider, context, registry
+    # Wire up provider, context, registry — lazy imports keep startup lean
+    _log_startup("Initializing AI provider")
     provider = create_provider(config)
 
+    _log_startup("Scanning project context")
     from agent.context import RepoContext
+    from agent.history import HistoryManager
+    from agent.tools import ToolRegistry
     repo_context = RepoContext(config.workdir)
     registry = ToolRegistry(config, _context=repo_context)
 
-    # MCP
+    # MCP — lazy import to avoid loading the mcp library at startup
+    _log_startup("Connecting MCP servers")
+    from agent.mcp_client import MCPManager
     mcp_config_path = Path("mcp_servers.json")
     if not mcp_config_path.exists():
         mcp_config_path = Path(__file__).parent.parent / "mcp_servers.json"
     mcp_manager = MCPManager(mcp_config_path)
     await mcp_manager.connect_all(registry)
 
-    # A2A server
-    a2a_app.state.config   = config
-    a2a_app.state.registry = registry
-
+    # A2A server — only import fastapi/uvicorn when A2A is actually enabled
+    _log_startup("Starting A2A server")
     if config.a2a_enabled:
+        from agent.a2a_server import app as a2a_app
         import uvicorn
         import socket
-        
+
+        a2a_app.state.config   = config
+        a2a_app.state.registry = registry
+
         # Check if port is available
         port_in_use = False
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -170,7 +264,7 @@ async def main_async() -> None:
                 s.bind(("0.0.0.0", config.a2a_port))
             except OSError:
                 port_in_use = True
-                
+
         if port_in_use:
             UI.print_error(f"Port {config.a2a_port} is already in use. A2A server disabled. Use --a2a-port <port> to change.")
             a2a_server = None
@@ -207,6 +301,7 @@ async def main_async() -> None:
 
     # ── CI / single-task mode ─────────────────────────────────────────────────
     if args.task:
+        from agent.loop import run_agent_loop
         history.append(provider.make_user_message(args.task))
         await run_agent_loop(
             provider=provider,
@@ -224,7 +319,9 @@ async def main_async() -> None:
         sys.exit(0)
 
     # ── Interactive TUI mode ──────────────────────────────────────────────────
+    _log_startup("Starting DevPilot TUI")
     from agent.tui.app import DevPilotApp
+    _clear_startup()   # erase progress line before TUI takes over the screen
     app = DevPilotApp(
         provider=provider,
         registry=registry,

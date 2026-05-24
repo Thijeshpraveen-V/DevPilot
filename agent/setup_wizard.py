@@ -25,24 +25,69 @@ from rich.table import Table
 
 console = Console()
 
-# ── Model lists ───────────────────────────────────────────────────────────────
+
+def _prompt_secret(prompt_text: str) -> str:
+    """
+    Prompt for a secret (API key) showing '*' for each character typed.
+    Works on Windows (CMD / PowerShell) where rich's password=True renders
+    completely blank and provides no visual feedback to the user.
+    Falls back to rich Prompt (password=True) on non-TTY / CI environments.
+    """
+    import sys
+    if not sys.stdin.isatty():
+        return Prompt.ask(prompt_text, password=True).strip()
+
+    import platform
+    if platform.system() == "Windows":
+        import msvcrt
+        console.print(f"{prompt_text}: ", end="")
+        chars: list[str] = []
+        while True:
+            ch = msvcrt.getwch()  # read one char without echo
+            if ch in ("\r", "\n"):   # Enter key
+                console.print()       # move to next line
+                break
+            elif ch == "\x03":        # Ctrl+C
+                raise KeyboardInterrupt
+            elif ch in ("\x08", "\x7f"):  # Backspace
+                if chars:
+                    chars.pop()
+                    # erase last asterisk: backspace + space + backspace
+                    console.print("\b \b", end="")
+            elif ch == "\x00" or ch == "\xe0":  # special key prefix — skip next byte
+                msvcrt.getwch()
+            else:
+                chars.append(ch)
+                console.print("*", end="")
+        return "".join(chars).strip()
+    else:
+        # Unix: getpass already hides input cleanly
+        import getpass
+        return getpass.getpass(f"{prompt_text}: ").strip()
+
+
+# ── Model lists (verified against live APIs) ──────────────────────────────────
+# Last verified: May 2026
 
 _ANTHROPIC_MODELS = [
-    ("claude-opus-4-5-20251101",   "Most capable — best for complex tasks"),
-    ("claude-sonnet-4-5-20251101", "Balanced — fast and capable"),
-    ("claude-haiku-4-5-20251101",  "Fastest — best for simple tasks"),
-    ("claude-3-7-sonnet-20250219", "Extended thinking support"),
+    # Verified via GET https://api.anthropic.com/v1/models
+    ("claude-opus-4-7",            "Newest — most capable Claude (latest)"),
+    ("claude-opus-4-5-20251101",   "Claude Opus 4.5 — powerful & reliable"),
+    ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5 — balanced speed & quality"),
+    ("claude-haiku-4-5-20251001",  "Claude Haiku 4.5 — fastest, most affordable"),
 ]
 
 _OPENAI_MODELS = [
-    ("gpt-4o",      "Latest GPT-4o — best for coding"),
-    ("gpt-4o-mini", "Fast and cheap — good for simple tasks"),
-    ("o3",          "Most powerful reasoning model"),
-    ("o4-mini",     "Fast reasoning — great for code"),
+    # Verified via platform.openai.com/docs/models (May 2026)
+    # Note: gpt-4o, o3, o4-mini are retired as of early 2026
+    ("gpt-5.5",      "Flagship — best reasoning & coding"),
+    ("gpt-5.4",      "Primary model — coding & professional work"),
+    ("gpt-5.4-mini", "Fast & cost-efficient"),
+    ("gpt-5.4-nano", "Fastest — high-volume low-latency tasks"),
 ]
 
 # OpenAI-compatible third-party providers
-# (base_url, display_name, key_env_var, key_url, models)
+# (display_name, key_url, key_env_var, base_url, models)
 _COMPATIBLE_PROVIDERS = {
     "1": (
         "Groq",
@@ -50,10 +95,12 @@ _COMPATIBLE_PROVIDERS = {
         "GROQ_API_KEY",
         "https://api.groq.com/openai/v1",
         [
-            ("llama-3.3-70b-versatile", "Best Groq model — fast & capable"),
-            ("llama-3.1-8b-instant",    "Ultra-fast, lightweight"),
-            ("mixtral-8x7b-32768",      "Large context window"),
-            ("gemma2-9b-it",            "Google Gemma 2 — fast"),
+            # Verified via GET https://api.groq.com/openai/v1/models
+            ("llama-3.3-70b-versatile",                "Llama 3.3 70B — best quality (131k ctx)"),
+            ("meta-llama/llama-4-scout-17b-16e-instruct","Llama 4 Scout 17B — latest & fast"),
+            ("qwen/qwen3-32b",                         "Qwen3 32B — strong reasoning"),
+            ("llama-3.1-8b-instant",                   "Llama 3.1 8B — ultra-fast"),
+            ("groq/compound",                          "Groq Compound — agentic tasks"),
         ],
     ),
     "2": (
@@ -62,9 +109,12 @@ _COMPATIBLE_PROVIDERS = {
         "TOGETHER_API_KEY",
         "https://api.together.xyz/v1",
         [
-            ("meta-llama/Llama-3-70b-chat-hf", "Llama 3 70B — best quality"),
-            ("meta-llama/Llama-3-8b-chat-hf",  "Llama 3 8B — faster"),
-            ("mistralai/Mixtral-8x7B-v0.1",    "Mixtral — large context"),
+            # Verified via Together AI docs (May 2026)
+            ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "Llama 4 Maverick — best quality"),
+            ("meta-llama/Llama-4-Scout-17B-16E-Instruct-FP8",     "Llama 4 Scout — fast MoE"),
+            ("meta-llama/Llama-3.3-70B-Instruct-Turbo",           "Llama 3.3 70B Turbo — reliable"),
+            ("meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",     "Llama 3.1 405B — most capable"),
+            ("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",       "Llama 3.1 8B — very fast"),
         ],
     ),
     "3": (
@@ -73,9 +123,10 @@ _COMPATIBLE_PROVIDERS = {
         "MISTRAL_API_KEY",
         "https://api.mistral.ai/v1",
         [
-            ("mistral-large-latest", "Most capable Mistral model"),
-            ("mistral-small-latest", "Fast and affordable"),
-            ("codestral-latest",     "Optimised for code"),
+            # Verified via Mistral docs — latest aliases always point to newest stable
+            ("mistral-large-latest",  "Most capable Mistral model"),
+            ("mistral-small-latest",  "Fast and affordable"),
+            ("codestral-latest",      "Optimised for code generation"),
         ],
     ),
     "4": (
@@ -84,10 +135,11 @@ _COMPATIBLE_PROVIDERS = {
         "OLLAMA_API_KEY",   # Ollama doesn't need a real key
         "http://localhost:11434/v1",
         [
-            ("qwen2.5-coder:7b",  "Best local coding model (recommended)"),
-            ("codellama:13b",     "Meta CodeLlama 13B"),
-            ("deepseek-coder:6b", "DeepSeek Coder 6B"),
-            ("llama3.2:3b",       "Llama 3.2 3B — very fast"),
+            # Run: ollama pull <model> before using
+            ("qwen2.5-coder:7b",    "Qwen2.5-Coder 7B — best local coding (8GB VRAM)"),
+            ("qwen2.5-coder:32b",   "Qwen2.5-Coder 32B — benchmark king (24GB VRAM)"),
+            ("deepseek-coder-v2:16b","DeepSeek-Coder-V2 16B — strong coding (16GB VRAM)"),
+            ("llama3.3:70b",        "Llama 3.3 70B — general purpose"),
         ],
     ),
     "5": (
@@ -98,6 +150,7 @@ _COMPATIBLE_PROVIDERS = {
         [],
     ),
 }
+
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -162,12 +215,17 @@ def _pick_model(models: list[tuple[str, str]], allow_custom: bool = False) -> st
 def run_setup_wizard(env_path: Path | None = None) -> bool:
     """
     Run the interactive first-run setup wizard.
+    Saves configuration to ~/.devpilot/.env so settings persist
+    regardless of which directory `devpilot` is run from.
     Returns True if setup completed, False if skipped/failed.
     """
     if not _is_interactive():
         return False
 
-    env_path = env_path or Path(".env")
+    # Always save to the persistent user config directory
+    user_config_dir = Path.home() / ".devpilot"
+    user_config_dir.mkdir(parents=True, exist_ok=True)
+    env_path = env_path or (user_config_dir / ".env")
 
     console.print(Panel(
         "[bold cyan]Welcome to DevPilot! 🚀[/bold cyan]\n\n"
@@ -179,12 +237,12 @@ def run_setup_wizard(env_path: Path | None = None) -> bool:
 
     # ── Step 1: Choose provider ───────────────────────────────────────────────
     console.print("\n[bold]Step 1 of 3 — Choose your AI provider[/bold]\n")
-    console.print("  [cyan]1[/cyan]  Anthropic      (Claude — recommended)")
-    console.print("  [cyan]2[/cyan]  OpenAI         (GPT-4o, o3, o4-mini)")
-    console.print("  [cyan]3[/cyan]  Groq           (Llama 3, Mixtral — very fast, free tier)")
-    console.print("  [cyan]4[/cyan]  Together AI    (Llama 3, Mixtral)")
-    console.print("  [cyan]5[/cyan]  Mistral AI     (Mistral, Codestral)")
-    console.print("  [cyan]6[/cyan]  Ollama         (local models, no API key needed)")
+    console.print("  [cyan]1[/cyan]  Anthropic      (Claude Opus 4.7, Sonnet 4.5, Haiku 4.5)")
+    console.print("  [cyan]2[/cyan]  OpenAI         (GPT-5.5, GPT-5.4, GPT-5.4-mini)")
+    console.print("  [cyan]3[/cyan]  Groq           (Llama 4 Scout, Llama 3.3 70B — very fast, free tier)")
+    console.print("  [cyan]4[/cyan]  Together AI    (Llama 4 Maverick/Scout, Llama 3.3 70B)")
+    console.print("  [cyan]5[/cyan]  Mistral AI     (Mistral Large, Codestral)")
+    console.print("  [cyan]6[/cyan]  Ollama         (local models — Qwen2.5-Coder, DeepSeek, Llama)")
     console.print("  [cyan]7[/cyan]  Other          (any OpenAI-compatible endpoint)")
 
     choice = Prompt.ask("\nProvider", choices=["1","2","3","4","5","6","7"], default="1")
@@ -195,7 +253,7 @@ def run_setup_wizard(env_path: Path | None = None) -> bool:
     if choice == "1":
         console.print("\n[bold]Step 2 of 3 — Enter your Anthropic API key[/bold]")
         console.print("  Get one at: [link=https://console.anthropic.com/]https://console.anthropic.com/[/link]")
-        api_key = Prompt.ask("\nANTHROPIC_API_KEY", password=True).strip()
+        api_key = _prompt_secret("ANTHROPIC_API_KEY")
         if not api_key:
             console.print("[red]API key cannot be empty.[/red]")
             return False
@@ -215,7 +273,7 @@ def run_setup_wizard(env_path: Path | None = None) -> bool:
     elif choice == "2":
         console.print("\n[bold]Step 2 of 3 — Enter your OpenAI API key[/bold]")
         console.print("  Get one at: [link=https://platform.openai.com/api-keys]https://platform.openai.com/api-keys[/link]")
-        api_key = Prompt.ask("\nOPENAI_API_KEY", password=True).strip()
+        api_key = _prompt_secret("OPENAI_API_KEY")
         if not api_key:
             console.print("[red]API key cannot be empty.[/red]")
             return False
@@ -244,7 +302,7 @@ def run_setup_wizard(env_path: Path | None = None) -> bool:
             api_key = "ollama"
         else:
             console.print(f"  Get one at: [link={key_url}]{key_url}[/link]")
-            api_key = Prompt.ask(f"\n{key_env}", password=True).strip()
+            api_key = _prompt_secret(key_env)
             if not api_key:
                 console.print("[red]API key cannot be empty.[/red]")
                 return False
@@ -264,7 +322,7 @@ def run_setup_wizard(env_path: Path | None = None) -> bool:
     elif choice == "7":
         console.print("\n[bold]Step 2 of 3 — Custom OpenAI-compatible endpoint[/bold]")
         base_url  = Prompt.ask("Base URL (e.g. https://api.example.com/v1)").strip()
-        api_key   = Prompt.ask("API key", password=True).strip()
+        api_key   = _prompt_secret("API key")
         model     = Prompt.ask("Model name (e.g. llama-3-70b)").strip()
 
         if not base_url or not model:

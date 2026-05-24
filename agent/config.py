@@ -17,8 +17,19 @@ from typing import Literal
 
 from dotenv import load_dotenv
 
-# ── Load .env file if present (safe to call even if file is missing) ─────────
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=False)
+# ── Persistent user config: ~/.devpilot/.env ─────────────────────────────────
+# This is where the setup wizard saves configuration so it persists
+# regardless of which directory `devpilot` is run from.
+_USER_CONFIG_DIR = Path.home() / ".devpilot"
+_USER_ENV_FILE   = _USER_CONFIG_DIR / ".env"
+
+# Load global user config first — this is where the setup wizard saves settings
+load_dotenv(dotenv_path=_USER_ENV_FILE, override=False)
+
+# Load project-local .env second — can ADD vars but won't override global config
+# (override=False means global ~/.devpilot/.env always wins)
+load_dotenv(dotenv_path=Path(".") / ".env", override=False)
+
 
 
 # ── Custom exception ─────────────────────────────────────────────────────────
@@ -32,8 +43,8 @@ class ConfigError(Exception):
 Provider = Literal["anthropic", "openai"]
 
 PROVIDER_DEFAULTS: dict[str, str] = {
-    "anthropic": "claude-opus-4-5",
-    "openai": "gpt-4o",
+    "anthropic": "claude-opus-4-5-20251101",
+    "openai":    "gpt-5.4",
 }
 
 # Keys required per provider (checked lazily so we can build/test without keys)
@@ -43,11 +54,15 @@ REQUIRED_ENV_KEYS: dict[str, str] = {
 }
 
 # Models that support extended thinking (Anthropic only)
+# Verified via Anthropic API — May 2026
 THINKING_CAPABLE_MODELS: set[str] = {
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-1-20250805",
+    "claude-sonnet-4-5-20250929",
     "claude-3-7-sonnet-20250219",
     "claude-3-5-sonnet-20241022",
-    "claude-opus-4-5",
-    "claude-opus-4-20250514",
 }
 
 

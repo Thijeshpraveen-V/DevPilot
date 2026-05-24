@@ -56,8 +56,10 @@ async def run_agent_loop(
         if response.thinking:
             UI.print_thinking_block(response.thinking)
 
-        # UI: print assistant text only when NOT already streamed live.
-        if response.text and not response.streamed_text:
+        # UI: always fire AssistantMessageEvent so the TUI can finalize the response.
+        # For streamed responses the TUI uses the already-buffered text from StreamTokenEvents
+        # and ignores event.text to avoid duplication. For non-streamed it uses event.text directly.
+        if response.text:
             UI.print_assistant_message(response.text)
 
         if not response.has_tool_uses:

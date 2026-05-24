@@ -145,33 +145,31 @@ class RepoContext:
         return sigs
 
     def _build_project_tree(self, max_entries: int = 200) -> list[str]:
+        """
+        Build a fast file-listing project tree.
+        AST signature extraction is intentionally skipped here to avoid
+        blocking startup — signatures are extracted lazily on file read.
+        """
         entries: list[str] = []
         ignores = {
-            ".git", "node_modules", ".venv", "__pycache__", "dist", 
+            ".git", "node_modules", ".venv", "__pycache__", "dist",
             "build", ".next", ".tox", "coverage_html_report", ".devpilot_sessions"
         }
 
         def _traverse(directory: Path, prefix: str = "") -> None:
             if len(entries) >= max_entries:
                 return
-
             try:
                 for item in sorted(directory.iterdir()):
                     if item.name.startswith(".") and item.name not in (".env", ".gitignore", ".github"):
                         continue
                     if item.name in ignores or item.name.endswith(".egg-info"):
                         continue
-
                     if item.is_dir():
                         entries.append(f"{prefix}📁 {item.name}/")
                         _traverse(item, prefix + "  ")
                     else:
                         entries.append(f"{prefix}📄 {item.name}")
-                        if item.suffix in (".py", ".js", ".ts"):
-                            sigs = self._extract_signatures(item)
-                            for sig in sigs:
-                                entries.append(f"{prefix}{sig}")
-
                     if len(entries) >= max_entries:
                         entries.append("… (truncated to ~200 items for context size)")
                         break
