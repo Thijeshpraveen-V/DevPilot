@@ -7,7 +7,7 @@ and registers them into the ToolRegistry.
 """
 
 import json
-from contextlib import AsyncExitStack
+import asyncio
 from pathlib import Path
 
 from mcp.client.session import ClientSession
@@ -23,8 +23,60 @@ class MCPManager:
 
     def __init__(self, config_path: Path):
         self.config_path = config_path
-        self.exit_stack = AsyncExitStack()
         self.sessions: dict[str, ClientSession] = {}
+        self._tasks: list[asyncio.Task] = []
+
+    async def _run_server(
+        self, 
+        name: str, 
+        command: str, 
+        args: list[str], 
+        env: dict | None, 
+        registry: ToolRegistry, 
+        ready_event: asyncio.Event
+    ) -> None:
+        try:
+            server_params = StdioServerParameters(command=command, args=args, env=env)
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    self.sessions[name] = session
+
+                    # Fetch and register tools
+                    tools_response = await session.list_tools()
+                    for mcp_tool in tools_response.tools:
+                        canonical_schema = {
+                            "name": mcp_tool.name,
+                            "description": mcp_tool.description or "",
+                            "input_schema": mcp_tool.inputSchema,
+                            "_mcp_server_id": name,
+                        }
+
+                        def make_executor(session_ref: ClientSession, tool_name: str):
+                            async def _executor(tool_input: dict) -> ToolResult:
+                                try:
+                                    result = await session_ref.call_tool(tool_name, tool_input)
+                                    text_contents = [c.text for c in result.content if isinstance(c, TextContent)]
+                                    output = "\n".join(text_contents)
+                                    return ToolResult(output, is_error=result.isError)
+                                except Exception as e:
+                                    return ToolResult(f"MCP execution error: {e}", is_error=True)
+                            return _executor
+
+                        registry.register_mcp_tool(canonical_schema, make_executor(session, mcp_tool.name))
+
+                    UI.print_info(f"Connected to MCP server: {name} ({len(tools_response.tools)} tools)")
+                    ready_event.set()
+
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        pass
+        except Exception as e:
+            UI.print_error(f"Failed to connect to MCP server '{name}': {e}")
+            registry.deregister_mcp_tools(name)
+        finally:
+            ready_event.set()
 
     async def connect_all(self, registry: ToolRegistry) -> None:
         """Connect to all servers in mcp_servers.json and register tools."""
@@ -39,14 +91,12 @@ class MCPManager:
             UI.print_error(f"Failed to read mcp_servers.json: {e}")
             return
 
-        # Handle both list of dicts and dict of dicts formats for mcp_servers.json
         if isinstance(servers, dict):
-            # In official MCP config format, it's a dict mapping name to config
             server_items = servers.items()
         else:
-            # Fallback if it's a list
             server_items = [(s.get("name", f"server_{i}"), s) for i, s in enumerate(servers)]
 
+        events = []
         for name, server_config in server_items:
             if server_config.get("enabled", True) is False:
                 continue
@@ -58,47 +108,23 @@ class MCPManager:
                 UI.print_error(f"MCP server '{name}' missing 'command'. Skipping.")
                 continue
 
-            try:
-                server_params = StdioServerParameters(command=command, args=args, env=server_config.get("env"))
-                stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-                read, write = stdio_transport
-                session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
+            ready_event = asyncio.Event()
+            events.append(ready_event)
+            task = asyncio.create_task(
+                self._run_server(name, command, args, server_config.get("env"), registry, ready_event)
+            )
+            self._tasks.append(task)
 
-                self.sessions[name] = session
-
-                # Fetch and register tools
-                tools_response = await session.list_tools()
-                for mcp_tool in tools_response.tools:
-                    # Convert to canonical schema format
-                    canonical_schema = {
-                        "name": mcp_tool.name,
-                        "description": mcp_tool.description or "",
-                        "input_schema": mcp_tool.inputSchema,
-                        "_mcp_server_id": name,
-                    }
-
-                    # Create closure for execution
-                    def make_executor(session_ref: ClientSession, tool_name: str):
-                        async def _executor(tool_input: dict) -> ToolResult:
-                            try:
-                                result = await session_ref.call_tool(tool_name, tool_input)
-                                # Flatten result text
-                                text_contents = [c.text for c in result.content if isinstance(c, TextContent)]
-                                output = "\n".join(text_contents)
-                                return ToolResult(output, is_error=result.isError)
-                            except Exception as e:
-                                return ToolResult(f"MCP execution error: {e}", is_error=True)
-                        return _executor
-
-                    registry.register_mcp_tool(canonical_schema, make_executor(session, mcp_tool.name))
-
-                UI.print_info(f"Connected to MCP server: {name} ({len(tools_response.tools)} tools)")
-            except Exception as e:
-                UI.print_error(f"Failed to connect to MCP server '{name}': {e}")
-                registry.deregister_mcp_tools(name)
+        if events:
+            await asyncio.gather(*(e.wait() for e in events))
 
     async def close(self) -> None:
         """Close all connections."""
-        await self.exit_stack.aclose()
+        for task in self._tasks:
+            task.cancel()
+        
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            
         self.sessions.clear()
+        self._tasks.clear()

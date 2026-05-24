@@ -161,14 +161,29 @@ async def main_async() -> None:
 
     if config.a2a_enabled:
         import uvicorn
-        a2a_cfg = uvicorn.Config(
-            app=a2a_app,
-            host="0.0.0.0",
-            port=config.a2a_port,
-            log_level="error",
-        )
-        a2a_server = uvicorn.Server(a2a_cfg)
-        a2a_task   = asyncio.create_task(a2a_server.serve())
+        import socket
+        
+        # Check if port is available
+        port_in_use = False
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("0.0.0.0", config.a2a_port))
+            except OSError:
+                port_in_use = True
+                
+        if port_in_use:
+            UI.print_error(f"Port {config.a2a_port} is already in use. A2A server disabled. Use --a2a-port <port> to change.")
+            a2a_server = None
+            a2a_task = None
+        else:
+            a2a_cfg = uvicorn.Config(
+                app=a2a_app,
+                host="0.0.0.0",
+                port=config.a2a_port,
+                log_level="error",
+            )
+            a2a_server = uvicorn.Server(a2a_cfg)
+            a2a_task   = asyncio.create_task(a2a_server.serve())
     else:
         a2a_server = None
         a2a_task   = None
@@ -217,12 +232,13 @@ async def main_async() -> None:
         config=config,
         repo_context=repo_context,
     )
-    await app.run_async()
-
-    if a2a_server and a2a_task:
-        a2a_server.should_exit = True
-        await a2a_task
-    await mcp_manager.close()
+    try:
+        await app.run_async()
+    finally:
+        if a2a_server and a2a_task:
+            a2a_server.should_exit = True
+            await a2a_task
+        await mcp_manager.close()
 
 
 def main() -> None:

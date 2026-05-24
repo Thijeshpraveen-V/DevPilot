@@ -171,7 +171,7 @@ class UI:
         if UI._tui_app:
             UI._tui_app.post_message(ErrorEvent(msg))
             return
-        console.print(f"[danger]❌ {msg}[/danger]")
+        console.print(f"[danger]Error: {msg}[/danger]")
 
     @staticmethod
     def print_info(msg: str) -> None:
@@ -179,7 +179,7 @@ class UI:
         if UI._tui_app:
             UI._tui_app.post_message(InfoEvent(msg))
             return
-        console.print(f"[info]ℹ️ {msg}[/info]")
+        console.print(f"[info]Info: {msg}[/info]")
 
     @staticmethod
     def print_success(msg: str) -> None:
@@ -187,7 +187,7 @@ class UI:
         if UI._tui_app:
             UI._tui_app.post_message(SuccessEvent(msg))
             return
-        console.print(f"[bold green]✓ {msg}[/bold green]")
+        console.print(f"[bold green]Success: {msg}[/bold green]")
 
     @staticmethod
     def print_thinking_block(thinking_text: str) -> None:
