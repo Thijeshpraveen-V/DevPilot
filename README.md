@@ -34,7 +34,6 @@
 | **Git** | `git_status`, `git_commit` with surgical file staging |
 | **Documentation** | `doc_gen` (markdown), `diagram` (Mermaid) |
 | **Web search** | `web_search` via Tavily (optional) |
-
 | **MCP** | Connect any MCP server via `mcp_servers.json` |
 | **A2A** | Agent-to-agent task delegation over HTTP |
 | **Providers** | Anthropic, OpenAI, Groq, Together AI, Mistral, Ollama, any OpenAI-compatible endpoint |
@@ -130,7 +129,6 @@ Options:
   --a2a-port PORT                 A2A server port (default: 8000)
   --no-a2a                        Disable A2A server
   --no-web-search                 Disable Tavily web search
-
   --setup                         Re-run the setup wizard
 ```
 
@@ -190,7 +188,7 @@ agent/
 ├── setup_wizard.py       First-run interactive configuration wizard
 ├── loop.py               Core agentic loop (plan → act → verify → heal)
 ├── config.py             Config dataclass — all settings from env vars
-├── context.py            RepoContext — file awareness, AST map
+├── context.py            RepoContext — file awareness, AST project map
 ├── history.py            Conversation history + smart context pruning
 ├── providers/
 │   ├── anthropic_provider.py
@@ -205,7 +203,6 @@ agent/
 │   ├── doc_gen.py        doc_gen
 │   ├── diagram.py        diagram (Mermaid)
 │   ├── web_search.py     web_search (Tavily)
-
 │   ├── a2a.py            A2A delegation
 │   └── registry.py       ToolRegistry + PermissionGuard
 └── tui/
